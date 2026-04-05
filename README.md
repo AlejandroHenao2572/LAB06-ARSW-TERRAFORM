@@ -5,7 +5,7 @@
 
 ### Backend remoto de Terraform
 
-Despues de haber creado el ```resourse group```, el ```storage account``` y el ```container``` para el backend remoto de Terraform, se procedió a crear el archivo `backend.hcl` con la siguiente configuración:
+Despues de haber creado el ```resourse group```, el ```storage account``` y el ```container``` en el portal de Azure para el backend remoto de Terraform, se procedió a crear el archivo `backend.hcl` con la siguiente configuración:
 
 ```hcl
 resource_group_name = "rg-tfstate-lab6"
@@ -180,7 +180,7 @@ Entrar a la IP pública del Load Balancer desde el navegador:
 ![alt text](docs/img/image-5.png)
 
 
-### Workflow CI/CD con GitHub Actions
+## Workflow CI/CD con GitHub Actions
 
 Se implementó el workflow `.github/workflows/terraform.yml` para automatizar la validación y despliegue de la infraestructura con Terraform.
 
@@ -189,15 +189,17 @@ Este workflow tiene dos ejecuciones principales:
 - **Pull Request hacia `main`**: ejecuta `terraform fmt`, `terraform validate` y `terraform plan`.
 - **Ejecución manual (`workflow_dispatch`)**: ejecuta `terraform apply` para aplicar los cambios en Azure.
 
-#### Funcionamiento general
+### Funcionamiento general
 - Usa **OIDC** para autenticarse en Azure sin credenciales largas.
 - Toma como base el directorio `./infra`.
 - Inicializa Terraform con el backend remoto en Azure Storage.
 - Crea la llave pública SSH requerida por la infraestructura.
 - Publica el archivo del plan como artefacto en el pipeline.
 
-#### Resultado
+### Resultado
 Con este flujo, cada cambio en Terraform se revisa antes de llegar a `main`, y el despliegue final se realiza de forma controlada y manual.
+
+### Evidencias del workflows
 
 Se creo una rama para testear el workflow y se hizo un PR a main para validar su funcionamiento.
 
@@ -208,3 +210,83 @@ Terraform Plan:
 
 Terraform Apply:
 ![alt text](docs/img/ci3.png)
+
+## Diagrama Componentes
+![alt text](<docs/img/Azure GitHub CICD Access-2026-04-05-032029.png>)
+
+Este diagrama muestra la estructura del sistema. Se divide en tres zonas principales:
+
+- **El ecosistema de GitHub:** Donde reside el código y se ejecuta el pipeline (GitHub Actions).  
+
+- **El plano de control/Backends en Azure:** Donde ocurre la autenticación (OIDC a través de Entra ID) y donde se guarda el estado de Terraform (Storage Account).  
+
+- **La Infraestructura Desplegada:** Los recursos reales creados en el Resource Group, mostrando el balanceador de carga público, las reglas de red (NSG) y las dos máquinas virtuales con Nginx en la subred web.
+
+## Diagrama de Secuencia
+![alt text](<docs/img/Diagrama Secuencia.png>)  
+
+Este diagrama ilustra el comportamiento paso a paso del flujo de trabajo de Infraestructura como Código (IaC). Muestra cómo un cambio en el código viaja desde tu máquina local hasta convertirse en recursos en la nube. Destaca fases clave del laboratorio:
+
+- **Fase de Planificación (PR):** Validación y lectura del estado para saber qué va a cambiar.
+
+- **Fase de Despliegue (Apply manual):** Autenticación OIDC, bloqueo del estado para evitar colisiones y creación de los recursos a través del Azure Resource Manager (ARM).
+
+- **Fase de Inicialización:** Ejecución del cloud-init dentro de las VMs.
+
+## Preguntas de reflexión
+- **¿Por qué L4 LB vs Application Gateway (L7) en tu caso? ¿Qué cambiaría?:**  
+
+En este laboratorio usamos un Load Balancer L4 por su simplicidad, bajo costo y eficiencia para distribuir tráfico TCP básico (puerto 80) hacia nuestras páginas estáticas. Si cambiáramos a un Application Gateway (L7), ganaríamos capacidades avanzadas como enrutamiento inteligente basado en URL, terminación SSL/HTTPS y protección contra ataques web mediante un WAF (Web Application Firewall), aunque esto aumentaría notablemente la complejidad y los costos de la infraestructura.
+
+- **¿Qué implicaciones de seguridad tiene exponer 22/TCP? ¿Cómo mitigarlas?**  
+
+Exponer el puerto 22 a Internet hace que las máquinas virtuales sean un blanco fácil para escaneos automatizados y ataques de fuerza bruta. Para mitigar estos riesgos en el laboratorio, implementamos restricciones estrictas en el NSG para permitir el acceso SSH únicamente desde nuestra IP pública personal, pero en un entorno real la mejor práctica es eliminar por completo las IPs públicas de las VMs y utilizar servicios nativos como Azure Bastion o acceso Just-In-Time (JIT).
+
+- **¿Qué mejoras harías si esto fuera producción? (resiliencia, autoscaling, observabilidad).**
+
+Para llevar esta arquitectura a producción, reemplazaría las VMs estáticas por un Virtual Machine Scale Set (VMSS) distribuido en múltiples zonas de disponibilidad, permitiendo que la infraestructura escale automáticamente (autoscaling) según la demanda de CPU o tráfico. Además, mejoraría la observabilidad integrando Azure Monitor y Log Analytics para centralizar métricas y alertas, y fortalecería la seguridad integrando un Application Gateway con WAF y herramientas de análisis estático de código en el pipeline de GitHub Actions. Tambien Manejaría múltiples entornos (Dev, QA, Prod) usando Terraform Workspaces o carpetas separadas para aislar los estados. Por utltimo Crearía Alertas para notificar por correo o webhook si el Health Probe del Load Balancer falla o si el consumo de presupuesto (Budgets) se acerca al límite.
+
+## Reflexion tecnica
+
+### Decisiones Arquitectónicas y de Diseño
+
+Durante el desarrollo de este laboratorio, la infraestructura se modeló bajo el paradigma de Infraestructura como Código (IaC) priorizando la automatización, la seguridad y la reproducibilidad:
+
+- **Gestión del Estado (Remote State):** Se optó por almacenar el archivo terraform.tfstate en un Azure Storage Account. Esta decisión centraliza la fuente de verdad, habilita el bloqueo del estado (state locking) para evitar corrupciones por ejecuciones concurrentes y es fundamental para integrar CI/CD de manera segura.
+
+- **Autenticación sin Secretos (OIDC):** Para el pipeline en GitHub Actions, se configuró una federación de identidad (OpenID Connect) con Microsoft Entra ID. Esto eliminó la necesidad de almacenar credenciales estáticas de larga duración (como un Client Secret), reduciendo drásticamente la superficie de ataque en caso de que el repositorio sea comprometido.
+
+- **Configuración inmutable:** Se utilizó cloud-init para la instalación y configuración de Nginx. Esto garantiza que las máquinas virtuales nacen completamente funcionales sin requerir intervención manual o scripts post-despliegue a través de SSH.
+
+### Trade-offs 
+
+En la arquitectura propuesta, se tomaron decisiones que implicaron balancear beneficios frente a costos y complejidad:
+
+- **Load Balancer (L4) vs. Application Gateway (L7):** Se eligió el balanceador de capa 4 por su simplicidad y bajo costo, ideal para este escenario académico donde solo servimos contenido estático (HTTP/80). El trade-off es la pérdida de capacidades avanzadas de capa 7 (enrutamiento por URL, descarga SSL y Web Application Firewall).
+
+- **VMs Estáticas vs. VM Scale Sets (VMSS):** Se desplegaron dos máquinas virtuales independientes. Aunque esto cumple con el requisito de alta disponibilidad básica, sacrificamos la elasticidad automática (escalado horizontal dinámico) y la auto-reparación que ofrecería un clúster de VMSS.
+
+- **Acceso SSH Directo vs. Azure Bastion:** Para facilitar la depuración, se mantuvo el puerto 22 abierto, mitigando el riesgo al restringirlo a una única IP pública (la del estudiante) mediante el NSG. El trade-off fue ahorrar los altos costos asociados a desplegar Azure Bastion (aprox. $130 USD/mes), a cambio de asumir el riesgo residual de exponer IPs públicas en las VMs.
+
+
+### Estimación de Costos Aproximados
+Asumiendo un despliegue continuo (24/7) en la región centralus o eastus con recursos estándar para laboratorios , el costo estimado mensual sería:
+
+- 2 Máquinas Virtuales (ej. Standard_B1s): ~$15.00 USD
+- Discos OS (Premium SSD 30GB x2): ~$10.00 USD
+- Load Balancer (SKU Standard) + Reglas: ~$18.00 USD
+- Direcciones IP Públicas (LB y VMs si aplican): ~$8.00 USD
+- Storage Account (Backend tfstate): < $1.00 USD
+- Costo Total Estimado: ~$52.00 USD mensuales 
+
+> Nota: Al tratarse de un entorno de pruebas, los recursos solo deben existir durante la ejecución del laboratorio para minimizar el consumo de los créditos de Azure for Students.
+
+## Estrategia de Destrucción Segura
+Para evitar cobros inesperados y asegurar que no queden recursos huérfanos, el proceso de destrucción se realiza de la siguiente manera:
+
+- **Destrucción vía Terraform**: Ejecutar localmente el comando terraform destroy -var-file=env/dev.tfvars -auto-approve 
+
+![alt text](docs/img/destroy.png)  
+![alt text](docs/img/destroy2.png)
+
+- **Validación en el Portal**: Verificar en Azure Portal que el grupo de recursos principal esté completamente vacío o eliminado.
