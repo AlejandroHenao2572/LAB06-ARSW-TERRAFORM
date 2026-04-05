@@ -180,4 +180,31 @@ Entrar a la IP pública del Load Balancer desde el navegador:
 ![alt text](docs/img/image-5.png)
 
 
+### Workflow CI/CD con GitHub Actions
 
+Se implementó el workflow `.github/workflows/terraform.yml` para automatizar la validación y despliegue de la infraestructura con Terraform.
+
+Este workflow tiene dos ejecuciones principales:
+
+- **Pull Request hacia `main`**: ejecuta `terraform fmt`, `terraform validate` y `terraform plan`.
+- **Ejecución manual (`workflow_dispatch`)**: ejecuta `terraform apply` para aplicar los cambios en Azure.
+
+#### Funcionamiento general
+- Usa **OIDC** para autenticarse en Azure sin credenciales largas.
+- Toma como base el directorio `./infra`.
+- Inicializa Terraform con el backend remoto en Azure Storage.
+- Crea la llave pública SSH requerida por la infraestructura.
+- Publica el archivo del plan como artefacto en el pipeline.
+
+#### Resultado
+Con este flujo, cada cambio en Terraform se revisa antes de llegar a `main`, y el despliegue final se realiza de forma controlada y manual.
+
+Se creo una rama para testear el workflow y se hizo un PR a main para validar su funcionamiento.
+
+Terraform Plan:
+
+![alt text](docs/img/ci.png)  
+![alt text](docs/img/ci2.png)
+
+Terraform Apply:
+![alt text](docs/img/ci3.png)
