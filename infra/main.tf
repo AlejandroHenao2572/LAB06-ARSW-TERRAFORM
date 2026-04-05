@@ -1,4 +1,4 @@
-# Resource Group y wiring de módulos
+# Resource Group y wiring de módulos / cambio para test
 resource "azurerm_resource_group" "rg" {
   name     = "${var.prefix}-rg"
   location = var.location

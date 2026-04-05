@@ -13,7 +13,13 @@ override.tf.json
 *.tfplan
 *.tfplan.*
 
+# Variables sensibles
+*.tfvars
+*.tfvars.json
+!env/dev.tfvars        # Mantener solo el ejemplo no sensible
+!env/prod.tfvars.example
 
+# Archivos de backend locales
 
 # Carpeta de caché local
 .terraform/
